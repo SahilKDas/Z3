@@ -1,0 +1,24 @@
+# Generated output and local captures
+/build/
+/dist/
+/captures/
+/out/
+*.log
+*.exe
+*.dll
+*.spv
+__pycache__/
+*.pyc
+
+# Personal worlds, exploration data, and selected skin
+/worlds/
+/world.save*
+/active-world.txt
+player-skin.png
+
+# Local editor settings and credentials
+/.vs/
+/.vscode/
+.env
+.env.*
+!.env.example

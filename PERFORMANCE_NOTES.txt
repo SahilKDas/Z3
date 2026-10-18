@@ -1,0 +1,60 @@
+Z3 verification - 2026-10-18
+
+Release contract
+  One GUI executable, dist/Z3.exe: 2,253,824 bytes.
+  Embedded assets, shaders and English Minecraft font; no companion runtime files.
+  Portable world/map/skin data remains next to the executable.
+  107 simulation checks pass. Vulkan validation passes for cached terrain,
+  native and scaled rendering, cave previews, maps and world switching.
+  All automated smoke windows are muted without opening an audio device.
+
+Performance implementation
+  Terrain is uploaded only when meshes change, with a 3 MiB/frame upload budget.
+  Unchanged cached meshes upload zero bytes (verified by the GPU cache smoke).
+  Visible geometry is compacted on the GPU and drawn in opaque/water batches.
+  A bounded, persistent pool supports 1-12 workers (default 2). Generation tags
+  and isolated worker seeds permit nonblocking world switches without stale data.
+  Separate underground bounds, detail hysteresis, GPU timing and adaptive scene
+  resolution preserve the 2048m horizon. UI and map remain at native resolution.
+
+Measurements on NVIDIA GeForce MX550, 1120x700
+  Pre-change cave preview: 17.62 FPS, 139/240 frames above 33ms.
+  Pre-change flight preview: 56.28 FPS, 0/240 frames above 33ms.
+  Final desktop cave preview: 29.66 FPS, 110/240 frames above 33ms;
+    p50 31.29ms, p95 69.67ms, p99 73.49ms; last measured GPU work 2.88ms.
+    7.68 MB terrain uploaded over 240 frames; working set about 250 MB.
+  Other automated runs varied substantially, including lower results under load.
+  GPU telemetry during desktop verification reported P8, graphics 300MHz,
+  memory 405MHz. The automated windows could not obtain foreground focus.
+  These are short startup previews with changed cave geometry, not an isolated
+  same-scene benchmark or a verified sustained 60 FPS result. The target remains
+  60 FPS; it was NOT consistently achieved in the current test environment.
+
+Reproduce (all tests muted)
+  Z3.exe --smoke-gpu-cache --validate
+  Z3.exe --smoke-cave --frames=240 --validate --profile
+  Z3.exe --smoke-flight --frames=240 --validate --profile
+  Z3.exe --smoke-map --frames=240 --validate --profile
+  Z3.exe --smoke --scene-scale=0.5 --frames=60 --validate
+  Add --visible for an ordinary visible test window, or --workers=12 to test
+  higher concurrency. Native scene resolution is now the default; automatic
+  resolution reduction was removed after it made the world visibly blurry.
+  Earlier measurements above used the previous adaptive-resolution build and
+  should not be interpreted as native-resolution performance measurements.
+
+Mouse integration
+  Gameplay/inventory/pause/map cursor-mode transitions pass.
+  Explicit Windows client-area confinement is applied only while focused and
+  released for menus, map, focus loss and exit. Native confinement could not be
+  asserted in the unfocused automated desktop window.
+
+Terrain boundary and vegetation follow-up
+  Mixed cave-mouth cells now clip solid ground on a shared one-metre grid,
+  rather than deleting the entire cell. Roof lips include the raised stone rim.
+  Regression coverage checks solid samples across a coarse entrance cell.
+  Trees retain three-triangle crowns at coarse detail; macro patches use sparse
+  deterministic 16/32-metre sampling. Near trees retain their original models.
+  Native-resolution muted Vulkan checks: flight 240 frames, 54.26 FPS,
+  p95 26.84ms, zero frames above 33ms; cave 120 frames, 22.00 FPS,
+  p95 79.72ms. No Vulkan validation errors. These different startup views do
+  not establish a before/after FPS comparison or sustained 60 FPS performance.

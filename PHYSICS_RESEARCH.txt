@@ -1,0 +1,206 @@
+Z3 PHYSICS RESEARCH - Minecraft Java Edition 26.4-snapshot-3
+Research date: 2026-10-09. Target: the asset repository's exact game version.
+
+STATUS
+This is a source-based port of selected default player movement rules, not
+verified full Minecraft physics parity. Full parity includes every block shape,
+fluid state, entity collision, pose, attribute, effect, equipment enchantment,
+vehicle, damage source, input transition and server tick interaction. Those
+systems are not all present in Z3. Unlimited fireworks are an intentional user
+exception to survival parity. The earlier doubled jump/swim tuning is removed.
+
+PRIMARY EVIDENCE / REPRODUCIBILITY
+Official version metadata:
+https://piston-meta.mojang.com/v1/packages/1f72c04e6911826c9b68a54d290d755d9645c74a/26.4-snapshot-3.json
+Official client executable:
+https://piston-data.mojang.com/v1/objects/96611d3cbefeae43527552fd008a7031b6f46e71/client.jar
+Downloaded size: 41,918,883 bytes.
+Verified SHA-1: 96611d3cbefeae43527552fd008a7031b6f46e71.
+Version requires Java 25; version metadata build date is 2026-10-06.
+The unobfuscated executable was inspected using CFR 0.152 and Microsoft JDK 25.
+The jar and extracted research files are outside the size-limited game folder:
+C:/Users/suhas/AppData/Local/Temp/Z3-physics-26.4/
+No official Java class implementation is redistributed in this repository.
+CFR is a research aid; ambiguous decompiler output requires bytecode review.
+
+Inspected official classes and relevant methods:
+net.minecraft.world.entity.ai.attributes.Attributes: default attribute values
+net.minecraft.world.entity.LivingEntity: aiStep, applyInput, jumpFromGround,
+  travelInAir, travelInWater, travelInLava, getFrictionInfluencedSpeed,
+  getFluidFallingAdjustedMovement, updateFallFlyingMovement, canGlide,
+  calculateFallDamage, handleOnClimbable
+net.minecraft.world.entity.player.Player: travel, getSpeed, getFlyingSpeed,
+  maybeBackOffFromEdge, tryToStartFallFlying
+net.minecraft.client.player.LocalPlayer: modifyInput,
+  modifyInputSpeedForSquareMovement, canStartSprinting, sprint stop conditions
+net.minecraft.world.entity.Entity: move, collide, collideWithShapes,
+  collectCandidateStepUpHeights, updateSwimming, getFluidJumpThreshold
+net.minecraft.core.Direction: axisStepOrder
+net.minecraft.world.entity.projectile.FireworkRocketEntity: tick and lifetime
+net.minecraft.world.food.FoodData: tick and exhaustion
+net.minecraft.world.inventory.InventoryMenu: player inventory slot layout
+net.minecraft.world.inventory.AbstractContainerMenu: click/quick-craft semantics
+
+VERIFIED DEFAULT MOVEMENT RULES
+Units in official code are blocks per game tick; the game tick is 1/20 second.
+Z3 exposes velocity to rendering/audio in metres per second, converting by 20
+only at the physics boundary. Rendering interpolates between simulation poses.
+
+Input: horizontal input is multiplied by 0.98; item use by its movement
+multiplier (ordinary eating 0.2), sneak by the default sneaking_speed 0.3.
+The snapshot adjusts the input length for square movement before world rotation.
+Near-zero player horizontal velocity is zeroed when its squared magnitude is
+below 0.000009; vertical velocity is zeroed below magnitude 0.003.
+
+Normal air/ground travel: accelerate, resolve movement/collision, then subtract
+gravity 0.08 and apply vertical drag 0.98. Horizontal drag is block friction
+multiplied by 0.91, with ordinary block friction 0.6 while grounded, and 1 in air.
+Default walking movement_speed is float 0.1; sprint multiplier is 1.3.
+Air acceleration is 0.02; sprint air acceleration is float 0.025999999.
+For grounded friction greater than 0.6 the movement acceleration is adjusted
+by 0.21600002 divided by friction cubed. The snapshot also supports friction
+and air-drag modifier attributes; Z3 currently uses their default values only.
+
+Jump: vertical impulse is float 0.42, retaining a larger existing upward
+velocity. Sprint adds a horizontal impulse of 0.2 in the facing direction.
+Jump exhaustion is 0.05 normally and 0.2 sprinting. Held jumping has a 10-tick
+cooldown; releasing jump resets that cooldown. No coyote time or jump buffer.
+The normal unobstructed jump apex is about 1.252203 blocks above the floor.
+Ground friction/acceleration still apply on the initial jump tick.
+
+Collision: standing player width 0.6 and height 1.8; crouching height 1.5;
+swimming/gliding height 0.6. Resolve Y first, then the larger horizontal motion
+axis, then the other horizontal axis. Z3 replaces its previous coarse movement
+substeps with swept full-block AABB clipping. Sneak ledge protection reduces
+horizontal movements in 0.05-block increments while checking support below.
+The official step system tries candidate collision-shape heights up to default
+step_height 0.6 and picks an improved horizontal result. Z3 has full cubes only;
+partial shapes and the official candidate-step algorithm are still missing.
+
+Water: jump adds 0.04 per tick, rather than assigning a fixed swim speed.
+Deep water permits that impulse while on the floor. Fluid jump threshold is
+0.4 normally (0 for very small eye heights). Acceleration is 0.02; horizontal
+drag 0.8 ordinarily, 0.9 sprinting; vertical drag 0.8. Default non-sprint fluid
+gravity subtracts 0.08/16 after drag. Swimming aims vertical movement toward
+the look vector with response 0.06, or 0.085 when looking steeply down.
+A swimmer can rise out of water against a bank with a 0.3 upward impulse when
+horizontal collision and a free-space check permit it. It does not permit
+climbing an arbitrary two-block vertical wall. Official fluid surface heights,
+flow vectors, and fluid voxel intersections require a fluid-state system.
+Z3's source-like full water voxels remain a simplification.
+
+Elytra: use gravity 0.08, lift cos(pitch)^2, lift gravity multiplier 0.75,
+fall-to-forward conversion 0.1, upward-look conversion 0.04 with vertical
+multiplier 3.2, horizontal steering response 0.1, and drag (0.99,0.98,0.99).
+No invented minimum forward speed or 55 m/s cap. Our positive-up pitch is
+converted conceptually from Java's positive-down XRot convention.
+Wall damage depends on horizontal speed LOST by collision: lost speed*10-3.
+Wing wear is one durability per second; the last durability point disables
+usable wings. Ground/water transitions end flight.
+
+Firework entity boost occurs after player travel: add look*0.1 plus half the
+difference between look*1.5 and current velocity, in blocks per tick.
+Actual flight-1 rocket lifetime is 20+random(0..5)+random(0..6) ticks.
+Z3 deliberately uses a repeatable 30-tick boost and unlimited launches/refills,
+and refreshes an existing boost instead of stacking independent rocket entities.
+That duration/stacking difference is explicitly not full rocket-entity parity.
+
+Fall damage in this snapshot uses floor(distance+0.000001-safe_fall_distance),
+with default safe distance 3, rather than blindly using an older ceil formula.
+Damage modifiers, enchantments, and landing material behaviors still matter.
+
+Hunger: exhaustion is capped at 40; only when strictly greater than 4 does
+one tick spend 4 exhaustion, removing one saturation before food. Saturation
+healing at full food occurs every 10 ticks: heal min(saturation,6)/6 and add
+that much exhaustion. Slower healing at food >=18 occurs every 80 ticks:
+heal 1 and add exhaustion 6. Starvation checks every 80 ticks; on Normal,
+health does not fall below 1. Ordinary walking is not charged sprint exhaustion.
+Apples: nutrition 4, saturation 2.4; cooked beef: 8 and 12.8; eating 32 ticks.
+
+VALIDATION COMPLETED IN Z3
+The regression suite includes numeric fixtures derived from the official
+methods for two initial free-fall ticks, grounded acceleration and drag,
+jump apex, liquid upward impulse, level-look elytra velocity, post-travel
+firework velocity and fast saturation regeneration. It also checks collision,
+low-food sprint gating, infinite rocket consumption behavior, equipment gating,
+stack conservation, shift equipment, drag distribution, crafting and saves.
+These are source-derived fixtures, not an end-to-end differential execution
+of a vanilla client and server. Passing them is not proof of complete parity.
+
+FULL-PARITY COVERAGE STILL REQUIRED
+1. Geometry: voxel-shape registry for slabs, stairs, fences, walls, doors,
+   trapdoors, snow layers and all state/orientation combinations; candidate
+   stepping, crawling and automatic pose fallback; double precision positions
+   and the same float/double/trigonometric rounding behavior as Java.
+2. Materials: ice variants, slime bounce, beds, honey, soul sand, cobwebs,
+   berry bushes, powder snow, ladders, vines, scaffolding, bubble columns,
+   cactus/magma/fire/portals and every collision/landing effect.
+3. Fluids: real source/flowing fluid levels, current accumulation and falling
+   flow, lava movement/drag, waterlogging, full-volume intersection and eye
+   submersion, fluid-exit checks, extinguishing and breathing/drowning.
+4. Attributes/effects: movement and gravity modifiers, jump boost, speed,
+   slowness, slow falling, levitation, dolphin grace, blindness, depth strider,
+   soul speed, swift sneak, frost walker, feather falling and knockback.
+5. Entities: collision/pushing, projectiles and damage invulnerability,
+   boats/minecarts/riding, explosions, knockback and rocket lifetime/stacking.
+6. Input/state ordering: vanilla sprint toggles/double taps and cancellation,
+   complete fluid and pose transition ordering, client/server authority,
+   wall collision flags, world border, unloaded chunk behavior and dimensions.
+7. Survival: oxygen, fire/freeze/damage timers, armor and enchantment damage,
+   all difficulty/game-rule combinations, death drops and respawn state.
+8. Inventory: every item/component/stack rule, all recipes/recipe book,
+   crafting remainder items, repair, dropping/pickup entities, creative modes,
+   container types, curses and complete keyboard/mouse edge semantics.
+
+IMPLEMENTATION ORDER TO CLOSE THE GAP
+First introduce block-state and collision-shape registries plus double physical
+coordinates; then fluid states and exact pose transitions. Build deterministic
+scenarios against a local official server: flat ground, sprint-jump course,
+step/ledge/headroom obstacles, material strips, fluid edges and elytra turns.
+Capture position, velocity, ground/collision/pose/fluid flags and health/food
+for each tick under identical inputs. Compare traces with documented precision
+tolerances; run each case across render frame rates. Only after that foundation
+should effects/enchantments, entities/vehicles and survival corner cases be
+added and individually checked. Full parity cannot be honestly certified by
+matching a few constants or a visual smoke run.
+
+TRIANGLE TERRAIN UPDATE
+Runtime now uses continuous triangle heightfield collision instead of voxel
+collision. Source-derived movement equations remain, but this terrain has no
+caves, block edits, or colliding vegetation. This changes contact and stepping
+behavior and must not be described as full Minecraft physics parity.
+
+BANKED FLIGHT UPDATE
+Mouse turn rate now controls automatic roll; heading follows mouse movement
+only. This supersedes A/D banking, Q/C roll and bank-induced yaw.
+Lift now includes cos(roll), so steep/inverted banks change descent. Camera
+and avatar orientation reflect all three axes. With roll zero, the researched
+base elytra equations remain unchanged. This mode is not vanilla parity.
+
+UNRESTRICTED FLIGHT UPDATE
+Runtime flight now uses an explicit unrestricted arcade model: mouse-oriented
+60 m/s cruise and 102 m/s persistent boost, no collision/water cancellation,
+no durability requirement or wear, full pitch loops and double mouse gain.
+Diving adds speed with no hard cap. Historical source-derived vanilla equations
+remain behind unrestrictedFlight=false for reference regression checks.
+
+DO A BARREL ROLL UPDATE (supersedes runtime modes above)
+Runtime unrestrictedFlight is now false. barrelFlight uses an orthonormal
+local orientation: mouse X rotates around forward (roll), mouse Y around
+local right (pitch); banked pitch also changes world yaw. Orientation has no
+Euler angle limits. Camera and model smooth the same orthonormal basis.
+The mod's default keyboard yaw is omitted to preserve requested mouse-only
+flight. Vanilla equations, timed unlimited rockets, collisions, wet/ground
+cancellation and durability are restored. Bank roll no longer multiplies
+lift. Regression checks compare banked versus unbanked momentum at identical
+look vectors and verify basis stability after 1,000 compound rotations.
+Primary upstream: https://github.com/enjarai/do-a-barrel-roll
+
+CAVE AND RAVINE UPDATE
+Continuous terrain now includes seeded ravines and roofed caverns. Cavern
+floors and ceilings participate in player collision; the below-world cutoff
+is lowered to -2000 for this terrain. Lava contact causes burn damage. Roof
+polygons are clipped to their footprint and mouth, with rim walls closing
+the clipped ceiling to the rendered floor. These remain custom continuous
+geometry and do not constitute Minecraft block-shape or fluid parity.
+Rock below Y=0 uses deepslate; lava stays a separate emissive material.
